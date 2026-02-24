@@ -320,6 +320,7 @@ superLikeBtn.addEventListener("click", () => performAction("superlike"));
 shuffleBtn.addEventListener("click", resetDeck);
 
 function resetDeck() {
+  isAnimating = false;
   profiles = generateProfiles(12);
   renderDeck();
 }
