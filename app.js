@@ -53,6 +53,8 @@ function imgFor(seed) {
 function generateProfiles(count = 12) {
   const profiles = [];
   for (let i = 0; i < count; i++) {
+    const numPhotos = 2 + Math.floor(Math.random() * 3); // 2–4 photos
+    const seeds = Array.from({ length: numPhotos }, () => sample(UNSPLASH_SEEDS));
     profiles.push({
       id: `p_${i}_${Date.now().toString(36)}`,
       name: sample(FIRST_NAMES),
@@ -61,7 +63,7 @@ function generateProfiles(count = 12) {
       title: sample(JOBS),
       bio: sample(BIOS),
       tags: pickTags(),
-      img: imgFor(sample(UNSPLASH_SEEDS)),
+      images: seeds.map(imgFor),
     });
   }
   return profiles;
@@ -75,8 +77,13 @@ const shuffleBtn = document.getElementById("shuffleBtn");
 const likeBtn = document.getElementById("likeBtn");
 const nopeBtn = document.getElementById("nopeBtn");
 const superLikeBtn = document.getElementById("superLikeBtn");
+const galleryOverlay = document.getElementById("galleryOverlay");
+const galleryClose = document.getElementById("galleryClose");
+const galleryTrack = document.getElementById("galleryTrack");
+const galleryDots = document.getElementById("galleryDots");
 
 let profiles = [];
+let isAnimating = false;
 
 function renderDeck() {
   deckEl.setAttribute("aria-busy", "true");
@@ -88,7 +95,7 @@ function renderDeck() {
 
     const img = document.createElement("img");
     img.className = "card__media";
-    img.src = p.img;
+    img.src = p.images[0];
     img.alt = `${p.name} — profile photo`;
 
     const body = document.createElement("div");
@@ -127,22 +134,195 @@ function renderDeck() {
   deckEl.removeAttribute("aria-busy");
 }
 
+// -------------------
+// Actions (shared by gestures and buttons)
+// -------------------
+const SWIPE_THRESHOLD = 60;
+const EXIT_CLASS = {
+  nope: "card--exit-left",
+  like: "card--exit-right",
+  superlike: "card--exit-up",
+};
+
+function getTopCard() {
+  return deckEl.firstElementChild;
+}
+
+function performAction(action) {
+  const card = getTopCard();
+  if (!card || isAnimating || !profiles.length) return;
+
+  isAnimating = true;
+  const exitClass = EXIT_CLASS[action];
+  card.classList.add(exitClass);
+
+  const onEnd = () => {
+    card.removeEventListener("transitionend", onEnd);
+    profiles.shift();
+    card.remove();
+    isAnimating = false;
+  };
+
+  card.addEventListener("transitionend", onEnd);
+  // Fallback if transitionend doesn’t fire (e.g. opacity only)
+  setTimeout(() => {
+    if (card.parentNode) {
+      card.removeEventListener("transitionend", onEnd);
+      profiles.shift();
+      card.remove();
+      isAnimating = false;
+    }
+  }, 320);
+}
+
+// -------------------
+// Swipe detection (pointer events)
+// -------------------
+let pointerId = null;
+let startX = 0, startY = 0;
+let currentX = 0, currentY = 0;
+let pointerDownTime = 0;
+
+function getCardTransform(dx, dy) {
+  const rot = Math.sign(dx) * Math.min(Math.abs(dx) / 12, 12);
+  return `translate(${dx}px, ${dy}px) rotate(${rot}deg)`;
+}
+
+function onPointerDown(e) {
+  if (isAnimating) return;
+  const card = getTopCard();
+  if (!card || e.target.closest(".gallery-overlay")) return;
+
+  pointerId = e.pointerId;
+  startX = e.clientX;
+  startY = e.clientY;
+  currentX = 0;
+  currentY = 0;
+  pointerDownTime = Date.now();
+  card.classList.add("card--dragging");
+  card.style.transform = getCardTransform(0, 0);
+
+  deckEl.setPointerCapture(pointerId);
+  deckEl.addEventListener("pointermove", onPointerMove);
+  deckEl.addEventListener("pointerup", onPointerUp, { once: true });
+  deckEl.addEventListener("pointercancel", onPointerUp, { once: true });
+}
+
+function onPointerMove(e) {
+  if (e.pointerId !== pointerId) return;
+  const card = getTopCard();
+  if (!card) return;
+
+  currentX = e.clientX - startX;
+  currentY = e.clientY - startY;
+  card.style.transform = getCardTransform(currentX, currentY);
+}
+
+const TAP_MOVE_THRESHOLD = 15;
+const TAP_MAX_DURATION_MS = 250;
+const DOUBLE_TAP_MS = 400;
+let lastTapTime = 0;
+
+function onPointerUp(e) {
+  if (e.pointerId !== pointerId) return;
+  deckEl.releasePointerCapture(pointerId);
+  deckEl.removeEventListener("pointermove", onPointerMove);
+
+  const card = getTopCard();
+  if (!card) return;
+
+  card.classList.remove("card--dragging");
+  card.style.transform = "";
+
+  const dx = currentX;
+  const dy = currentY;
+
+  if (Math.abs(dx) >= SWIPE_THRESHOLD && Math.abs(dx) >= Math.abs(dy)) {
+    performAction(dx < 0 ? "nope" : "like");
+    lastTapTime = 0;
+    return;
+  }
+  if (dy <= -SWIPE_THRESHOLD) {
+    performAction("superlike");
+    lastTapTime = 0;
+    return;
+  }
+
+  // Tap (minimal movement, short duration) → double-tap check
+  const duration = Date.now() - pointerDownTime;
+  const moved = Math.abs(dx) > TAP_MOVE_THRESHOLD || Math.abs(dy) > TAP_MOVE_THRESHOLD;
+  if (!moved && duration < TAP_MAX_DURATION_MS) {
+    const now = Date.now();
+    if (lastTapTime > 0 && now - lastTapTime <= DOUBLE_TAP_MS && profiles.length) {
+      lastTapTime = 0;
+      openGallery(profiles[0]);
+      return;
+    }
+    lastTapTime = now;
+  }
+}
+
+deckEl.addEventListener("pointerdown", onPointerDown, { passive: true });
+
+// -------------------
+// Double-tap: open photo gallery (also on double-click for desktop)
+// -------------------
+
+function openGallery(profile) {
+  if (!profile || !profile.images || !profile.images.length) return;
+  galleryTrack.innerHTML = "";
+  galleryDots.innerHTML = "";
+  profile.images.forEach((src, i) => {
+    const img = document.createElement("img");
+    img.src = src;
+    img.alt = `${profile.name} — photo ${i + 1}`;
+    galleryTrack.appendChild(img);
+
+    const dot = document.createElement("button");
+    dot.className = "gallery__dot" + (i === 0 ? " gallery__dot--active" : "");
+    dot.type = "button";
+    dot.setAttribute("aria-label", `Photo ${i + 1}`);
+    dot.addEventListener("click", () => {
+      galleryTrack.scrollTo({ left: galleryTrack.clientWidth * i, behavior: "smooth" });
+    });
+    galleryDots.appendChild(dot);
+  });
+
+  galleryTrack.addEventListener("scroll", () => {
+    const index = Math.round(galleryTrack.scrollLeft / galleryTrack.clientWidth);
+    galleryDots.querySelectorAll(".gallery__dot").forEach((d, i) => {
+      d.classList.toggle("gallery__dot--active", i === index);
+    });
+  }, { passive: true });
+
+  galleryOverlay.hidden = false;
+  galleryOverlay.focus();
+}
+
+function closeGallery() {
+  galleryOverlay.hidden = true;
+}
+
+galleryClose.addEventListener("click", closeGallery);
+galleryOverlay.addEventListener("click", (e) => {
+  if (e.target === galleryOverlay) closeGallery();
+});
+galleryOverlay.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeGallery();
+});
+
+// -------------------
+// Bottom buttons (same behavior as gestures)
+// -------------------
+likeBtn.addEventListener("click", () => performAction("like"));
+nopeBtn.addEventListener("click", () => performAction("nope"));
+superLikeBtn.addEventListener("click", () => performAction("superlike"));
+shuffleBtn.addEventListener("click", resetDeck);
+
 function resetDeck() {
   profiles = generateProfiles(12);
   renderDeck();
 }
-
-// Controls (intentionally not implemented)
-likeBtn.addEventListener("click", () => {
-  console.log("Like clicked.");
-});
-nopeBtn.addEventListener("click", () => {
-  console.log("Nope clicked.");
-});
-superLikeBtn.addEventListener("click", () => {
-  console.log("Super Like clicked.");
-});
-shuffleBtn.addEventListener("click", resetDeck);
 
 // Boot
 resetDeck();

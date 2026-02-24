@@ -27,6 +27,14 @@
         <!-- Cards rendered by app.js -->
       </section>
 
+      <div class="gallery-overlay" id="galleryOverlay" role="dialog" aria-modal="true" aria-label="Profile photos" tabindex="-1" hidden>
+        <div class="gallery">
+          <button class="gallery__close" id="galleryClose" type="button" aria-label="Close gallery">×</button>
+          <div class="gallery__track" id="galleryTrack"></div>
+          <div class="gallery__dots" id="galleryDots"></div>
+        </div>
+      </div>
+
       <div class="controls">
         <button class="ctrl ctrl--nope" id="nopeBtn" title="Nope">✖</button>
         <button class="ctrl ctrl--superlike" id="superLikeBtn" title="Super Like">★</button>
@@ -34,7 +42,7 @@
       </div>
 
       <p class="note">
-        <strong>Note:</strong> Swiping and button actions need to be implemented.
+        Swipe left = Nope · Swipe right = Like · Swipe up = Super like · Double-tap = Photos
       </p>
     </main>
 
