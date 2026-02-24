@@ -288,12 +288,12 @@ function openGallery(profile) {
     galleryDots.appendChild(dot);
   });
 
-  galleryTrack.addEventListener("scroll", () => {
+  galleryTrack.onscroll = () => {
     const index = Math.round(galleryTrack.scrollLeft / galleryTrack.clientWidth);
     galleryDots.querySelectorAll(".gallery__dot").forEach((d, i) => {
       d.classList.toggle("gallery__dot--active", i === index);
     });
-  }, { passive: true });
+  };
 
   galleryOverlay.hidden = false;
   galleryOverlay.focus();
